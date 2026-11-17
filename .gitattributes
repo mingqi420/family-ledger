@@ -1,0 +1,4 @@
+# 保证从 Windows 克隆或修改后，Unix 启动脚本仍可执行。
+*.sh text eol=lf
+*.command text eol=lf
+*.bat text eol=crlf

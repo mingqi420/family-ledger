@@ -1,0 +1,19 @@
+# 本地账本与 SQLite 运行时文件
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# 个人备份与导出
+家庭记账备份_*.json
+旧版浏览器备份_*.json
+家庭记账流水_*.csv
+
+# 开发环境与运行产物
+.idea/
+.DS_Store
+__pycache__/
+*.py[cod]
+*.log
