@@ -6,6 +6,7 @@
 """
 import argparse
 import hashlib
+import ipaddress
 import json
 import secrets
 import sqlite3
@@ -23,6 +24,7 @@ DATA_DIR = ROOT / "data"
 DEFAULT_DB = DATA_DIR / "ledger.db"
 DB = DEFAULT_DB
 PORT = 8899
+PUBLIC = False
 MAX_BODY = 32 * 1024 * 1024
 MAX_RECORDS = 50000
 MAX_AMOUNT = 99999999.99
@@ -37,6 +39,16 @@ def db():
             yield conn
     finally:
         conn.close()
+
+
+def _is_local_host(hostname):
+    if not hostname or hostname == "localhost":
+        return bool(hostname)
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private or ip.is_link_local
 
 
 def validate_data(body):
@@ -142,13 +154,17 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def _trusted(self):
+        if PUBLIC:
+            return True  # 外网映射模式（--public）：Host/Origin 由隧道转发，无法枚举，跳过校验
         port = self.server.server_port
         host = self.headers.get("Host", "")
         origin = self.headers.get("Origin")
-        valid = host in (f"127.0.0.1:{port}", f"localhost:{port}")
+        hostname = host[1:host.index("]")] if host.startswith("[") else host.rsplit(":", 1)[0]
+        # 放行 localhost 与本机局域网/回环 IP，仍要求 Host 端口与服务一致（防 DNS rebinding）
+        valid = _is_local_host(hostname) and host.endswith(f":{port}")
         valid = valid and (origin is None or origin == f"http://{host}")
         if not valid:
-            self._json(403, {"ok": False, "error": "仅允许本机同源访问"})
+            self._json(403, {"ok": False, "error": "仅允许本机或局域网同源访问"})
         return valid
 
     def _json(self, code, obj):
@@ -275,17 +291,21 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="家庭记账本地服务，仅监听本机")
+    parser = argparse.ArgumentParser(description="家庭记账本地服务，默认监听所有网卡（局域网可访问）")
     if sys.version_info < (3, 9) or sqlite3.sqlite_version_info < (3, 24):
         parser.error("需要 Python 3.9+ 和 SQLite 3.24+，请升级 Python")
+    parser.add_argument("--host", default="0.0.0.0", help="监听地址，默认 0.0.0.0；仅本机可访问请用 127.0.0.1")
+    parser.add_argument("--public", action="store_true",
+                        help="外网映射模式：跳过 Host/Origin 校验，供花生壳等隧道转发访问")
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--db", type=Path, default=DB, help="数据库文件路径")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("端口必须在 1 到 65535 之间")
     PORT, DB = args.port, args.db.expanduser().resolve()
+    PUBLIC = args.public
     try:
-        srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+        srv = ThreadingHTTPServer((args.host, PORT), Handler)
         if DB == DEFAULT_DB:
             if (ROOT / "ledger.db").exists():
                 raise OSError("检测到项目根目录的旧账本，请停服后按 README 迁移到 data/ledger.db，避免误用空账本")
@@ -295,6 +315,10 @@ if __name__ == "__main__":
         print(f"启动失败：{e}。请检查端口、数据库路径及文件权限。", file=sys.stderr)
         sys.exit(1)
     print(f"家庭记账服务已启动 → http://127.0.0.1:{PORT}   数据库: {DB}", flush=True)
+    if PUBLIC:
+        print("外网映射模式已开启：任何能连到此服务的人均可查看和修改账本，请注意数据安全。", flush=True)
+    elif args.host == "0.0.0.0":
+        print("局域网内其他设备可用 http://<本机IP>:%d 访问（用 ifconfig | grep 'inet ' 查看本机 IP）。" % PORT, flush=True)
     print("在本终端按 Control+C 停止服务。", flush=True)
     try:
         srv.serve_forever()
