@@ -64,9 +64,9 @@ const EXPENSE_CATS = [
   { name: '旅行', emoji: '✈️' }, { name: '其他', emoji: '📦' },
 ];
 const INCOME_CATS = [
-  { name: '工资', emoji: '💰' }, { name: '奖金', emoji: '🏆' }, { name: '兼职', emoji: '💼' },
-  { name: '红包', emoji: '🧧' }, { name: '退款', emoji: '↩️' }, { name: '报销', emoji: '🧾' },
-  { name: '其他', emoji: '💵' },
+  { name: '工资', emoji: '💰' }, { name: '奖金', emoji: '🏆' }, { name: '公积金', emoji: '🏦' },
+  { name: '兼职', emoji: '💼' }, { name: '红包', emoji: '🧧' }, { name: '退款', emoji: '↩️' },
+  { name: '报销', emoji: '🧾' }, { name: '其他', emoji: '💵' },
 ];
 const CAT_EMOJI_MAP = {};
 EXPENSE_CATS.forEach(c => CAT_EMOJI_MAP['e:' + c.name] = c.emoji);
