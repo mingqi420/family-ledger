@@ -13,6 +13,8 @@ const MAX_RECORDS = 50000;
 const MAX_AMOUNT = 99999999.99;
 const cents = n => Math.round(n * 100);
 const addMoney = (a, b) => (cents(a) + cents(b)) / 100;
+const newId = () => (crypto.randomUUID ? crypto.randomUUID()
+  : 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
 function validDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value < '1000-01-01') return false;
   const date = new Date(value + 'T00:00:00Z');
@@ -25,8 +27,18 @@ function validateSnapshot(data) {
     if (typeof v !== 'string' || [...v].length > max || (!optional && !v.trim())) throw new Error(label + '格式或长度不正确');
     return v;
   };
-  const members = data.members.map(m => text(m, '成员', 32));
-  if (new Set(members).size !== members.length) throw new Error('成员名字不能重复');
+  // 成员规范化为 { id, name }；兼容旧版纯字符串成员（为其生成稳定 id，并把记录名字映射到 id）
+  const seenIds = new Set(), nameToId = new Map(), members = [];
+  for (const m of data.members) {
+    const obj = (m && typeof m === 'object')
+      ? { id: text(m.id, '成员 ID', 64), name: text(m.name, '成员', 32) }
+      : { id: newId(), name: text(m, '成员', 32) };
+    if (seenIds.has(obj.id)) throw new Error('成员 ID 不能重复');
+    if (nameToId.has(obj.name)) throw new Error('成员名字不能重复');
+    seenIds.add(obj.id); nameToId.set(obj.name, obj.id); members.push(obj);
+  }
+  const resolveId = (idValue, name) => (idValue !== undefined && idValue !== null
+    ? text(idValue, '成员 ID', 64, true) : (nameToId.get(name) || ''));
   const ids = new Set();
   const records = data.records.map((r, i) => {
     if (!r || typeof r !== 'object' || Array.isArray(r)) throw new Error('第 ' + (i + 1) + ' 条记录格式不正确');
@@ -41,14 +53,17 @@ function validateSnapshot(data) {
     if (r.type === 'income' || r.type === 'expense') {
       item.category = text(r.category, '分类', 64);
       item.member = text(r.member ?? '', '成员', 32, true);
+      item.memberId = resolveId(r.memberId, item.member);
     } else if (r.type === 'invest') {
       if (!['buy', 'redeem', 'profit'].includes(r.action)) throw new Error('理财操作不正确');
       item.action = r.action;
       item.platform = text(r.platform, '平台', 64);
     } else {
-      item.from = text(r.from, '转出人', 32);
-      item.to = text(r.to, '转入人', 32);
-      if (item.from === item.to) throw new Error('转出人和转入人不能相同');
+      item.from = text(r.from ?? '', '转出人', 32, true);
+      item.to = text(r.to ?? '', '转入人', 32, true);
+      item.fromId = resolveId(r.fromId, item.from);
+      item.toId = resolveId(r.toId, item.to);
+      if (item.fromId && item.toId && item.fromId === item.toId) throw new Error('转出人和转入人不能相同');
     }
     return item;
   });
@@ -82,7 +97,7 @@ createApp({
   setup() {
     /* ========== 状态 ========== */
     const records = shallowRef([]);
-    const members = shallowRef(['明奇', '家人']);
+    const members = shallowRef([{ id: 'mingqi', name: '明奇' }, { id: 'jiaren', name: '家人' }]);
     const ready = ref(false);
     const busy = ref(false);
     const syncError = ref('');
@@ -199,11 +214,12 @@ createApp({
       if (busy.value) { event.preventDefault(); event.returnValue = ''; }
     });
     watch(members, v => {
-      if (!v.includes(form.member)) form.member = v[0] || '';
-      if (!v.includes(form.from)) form.from = v[0] || '';
-      if (!v.includes(form.to)) form.to = v[1] || v[0] || '';
-      if (memberFilter.value !== 'all' && !v.includes(memberFilter.value)) memberFilter.value = 'all';
-      if (statMember.value !== 'all' && !v.includes(statMember.value)) statMember.value = 'all';
+      const ids = v.map(m => m.id);
+      if (!ids.includes(form.member)) form.member = ids[0] || '';
+      if (!ids.includes(form.from)) form.from = ids[0] || '';
+      if (!ids.includes(form.to)) form.to = ids[1] || ids[0] || '';
+      if (memberFilter.value !== 'all' && !ids.includes(memberFilter.value)) memberFilter.value = 'all';
+      if (statMember.value !== 'all' && !ids.includes(statMember.value)) statMember.value = 'all';
     });
     watch([cursor, filter, memberFilter], () => { visibleCount.value = 100; });
     // 理财/内部转账记录不归属单一成员，切换到这两类时重置人名筛选
@@ -280,8 +296,8 @@ createApp({
     const monthStats = computed(() => statsOf(monthRecords.value));
     const yearStats = computed(() => statsOf(yearRecords.value));
     // 统计页按成员筛选后的记录源；明细页汇总仍用未筛选的 monthStats/yearStats
-    const statMonthRecords = computed(() => statMember.value === 'all' ? monthRecords.value : monthRecords.value.filter(r => r.member === statMember.value));
-    const statYearRecords = computed(() => statMember.value === 'all' ? yearRecords.value : yearRecords.value.filter(r => r.member === statMember.value));
+    const statMonthRecords = computed(() => statMember.value === 'all' ? monthRecords.value : monthRecords.value.filter(r => r.memberId === statMember.value));
+    const statYearRecords = computed(() => statMember.value === 'all' ? yearRecords.value : yearRecords.value.filter(r => r.memberId === statMember.value));
     const statMonthStats = computed(() => statsOf(statMonthRecords.value));
     const statYearStats = computed(() => statsOf(statYearRecords.value));
 
@@ -296,12 +312,19 @@ createApp({
     ];
     const memberFilters = computed(() => [
       { key: 'all', name: '全部成员' },
-      ...members.value.map(m => ({ key: m, name: m })),
+      ...members.value.map(m => ({ key: m.id, name: m.name })),
     ]);
+    // 成员当前名字（按 id 解析）；成员不存在时回退到记录里保存的名字快照
+    const memberNameMap = computed(() => {
+      const map = {};
+      members.value.forEach(m => { map[m.id] = m.name; });
+      return map;
+    });
+    const memberDisplay = (id, snapshot) => (id && memberNameMap.value[id]) || snapshot || '';
     const filteredMonth = computed(() => {
       let list = monthRecords.value;
       if (filter.value !== 'all') list = list.filter(r => r.type === filter.value);
-      if (memberFilter.value !== 'all') list = list.filter(r => r.member === memberFilter.value);
+      if (memberFilter.value !== 'all') list = list.filter(r => r.memberId === memberFilter.value);
       return list;
     });
     const dayGroups = computed(() => {
@@ -335,12 +358,12 @@ createApp({
     function recTitle(r) {
       if (r.type === 'expense' || r.type === 'income') return r.category;
       if (r.type === 'invest') return r.platform || '理财';
-      if (r.type === 'transfer') return r.from + ' → ' + r.to;
+      if (r.type === 'transfer') return memberDisplay(r.fromId, r.from) + ' → ' + memberDisplay(r.toId, r.to);
       return '';
     }
     function recSub(r) {
       const parts = [];
-      if (r.type === 'expense' || r.type === 'income') { if (r.member) parts.push(r.member); }
+      if (r.type === 'expense' || r.type === 'income') { const nm = memberDisplay(r.memberId, r.member); if (nm) parts.push(nm); }
       if (r.type === 'invest') parts.push(investActionName(r.action));
       if (r.note) parts.push(r.note);
       return parts.join(' · ') || '—';
@@ -398,7 +421,7 @@ createApp({
       for (let m = 1; m <= 12; m++) {
         const key = cursor.value.y + '-' + pad(m);
         const list = statMember.value === 'all' ? (recordIndex.value.months.get(key) || [])
-          : (recordIndex.value.months.get(key) || []).filter(r => r.member === statMember.value);
+          : (recordIndex.value.months.get(key) || []).filter(r => r.memberId === statMember.value);
         const s = statsOf(list);
         arr.push({ m, income: addMoney(s.income, s.investProfit), expense: s.expense });
       }
@@ -436,9 +459,9 @@ createApp({
       form.category = '餐饮';
       form.action = 'buy';
       form.platform = '';
-      form.from = members.value[0] || '';
-      form.to = members.value[1] || members.value[0] || '';
-      form.member = members.value[0] || '';
+      form.from = (members.value[0] || {}).id || '';
+      form.to = (members.value[1] || members.value[0] || {}).id || '';
+      form.member = (members.value[0] || {}).id || '';
       form.date = todayStr();
       form.note = '';
       drawer.value = true;
@@ -447,7 +470,7 @@ createApp({
       form.type = t;
       if (t === 'expense' || t === 'income') {
         form.category = t === 'expense' ? '餐饮' : '工资';
-        form.member = members.value.includes(form.member) ? form.member : (members.value[0] || '');
+        form.member = members.value.some(m => m.id === form.member) ? form.member : ((members.value[0] || {}).id || '');
       }
     }
     function cleanAmount() {
@@ -474,14 +497,16 @@ createApp({
       };
       if (form.type === 'expense' || form.type === 'income') {
         rec.category = form.category;
-        rec.member = form.member || members.value[0] || '';
+        rec.memberId = form.member || '';
+        rec.member = memberDisplay(form.member, '') || '';
       } else if (form.type === 'invest') {
         rec.action = form.action;
         rec.platform = form.platform.trim() || '未指定';
       } else if (form.type === 'transfer') {
         if (!form.from || !form.to) { showToast('请选择转出人和转入人'); return; }
         if (form.from === form.to) { showToast('转出人和转入人不能相同'); return; }
-        rec.from = form.from; rec.to = form.to;
+        rec.fromId = form.from; rec.toId = form.to;
+        rec.from = memberDisplay(form.from, '') || ''; rec.to = memberDisplay(form.to, '') || '';
       }
       if (await commitData([...records.value, rec])) {
         drawer.value = false;
@@ -525,21 +550,33 @@ createApp({
       if (!canWrite()) return;
       const n = newMember.value.trim();
       if (!n) return;
-      if (members.value.includes(n)) { showToast('该成员已存在'); return; }
-      if (await commitData(records.value, [...members.value, n])) {
+      if (members.value.some(m => m.name === n)) { showToast('该成员已存在'); return; }
+      if (await commitData(records.value, [...members.value, { id: newId(), name: n }])) {
         newMember.value = '';
         showToast('已添加「' + n + '」');
       }
     }
+    async function renameMember(id, name) {
+      if (!canWrite()) return false;
+      const n = (name || '').trim();
+      const target = members.value.find(m => m.id === id);
+      if (!target) return false;
+      if (!n) { showToast('成员名字不能为空'); return false; }
+      if (target.name === n) return true; // 名字未变化，视为无需保存
+      if (members.value.some(m => m.name === n)) { showToast('已有同名成员'); return false; }
+      const next = members.value.map(m => m.id === id ? { ...m, name: n } : m);
+      if (await commitData(records.value, next)) { showToast('已改名'); return true; }
+      return false;
+    }
     function removeMember(m) {
       if (!canWrite() || members.value.length <= 1) return;
-      const used = records.value.some(r => r.member === m || r.from === m || r.to === m);
+      const used = records.value.some(r => r.memberId === m.id || r.fromId === m.id || r.toId === m.id);
       modal.value = {
-        title: '删除成员「' + m + '」？',
-        desc: used ? '该成员已有历史记录，删除后旧记录中的名字会保留显示。' : '该成员暂无记录。',
+        title: '删除成员「' + m.name + '」？',
+        desc: used ? '该成员已有历史记录，删除后旧记录仍保留其名字显示，但无法再按该成员单独筛选。' : '该成员暂无记录。',
         okText: '删除',
         async onOk() {
-          const saved = await commitData(records.value, members.value.filter(x => x !== m));
+          const saved = await commitData(records.value, members.value.filter(x => x.id !== m.id));
           if (saved) showToast('已删除');
           return saved;
         },
@@ -574,7 +611,7 @@ createApp({
         rows.push([
           r.date, typeNames[r.type],
           r.type === 'invest' ? (r.platform + '/' + investActionName(r.action)) : (r.category || ''),
-          r.type === 'transfer' ? (r.from + '→' + r.to) : (r.member || ''),
+          r.type === 'transfer' ? (memberDisplay(r.fromId, r.from) + '→' + memberDisplay(r.toId, r.to)) : (memberDisplay(r.memberId, r.member) || ''),
           r.amount, r.note || '',
         ]);
       });
@@ -656,13 +693,14 @@ createApp({
       monthLabel, statLabel, statYear, today,
       monthStats, yearStats, statMember, statMonthStats, statYearStats, allTime, totalInvested,
       typeFilters, memberFilters, dayGroups, dayTitle, dayNum,
+      memberDisplay,
       recIcon, recTitle, recSub, amtClass, amtText, catEmoji,
       investActionName, investActionIcon,
       monthExpenseRank, monthIncomeRank, yearExpenseRank,
       dailyTrend, trendH, monthTrend, yBarH,
       investRecent, platformSummary,
       shiftMonth, openDrawer, switchType, cleanAmount, saveRecord,
-      askDelete, confirmClear, addMember, removeMember,
+      askDelete, confirmClear, addMember, renameMember, removeMember,
       exportJSON, exportCSV, importJSON, canWrite,
       expenseCats: EXPENSE_CATS, incomeCats: INCOME_CATS,
       fmt,

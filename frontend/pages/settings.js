@@ -2,12 +2,24 @@
 const SettingsPage = {
   name: 'SettingsPage',
   setup() {
-    const bindings = LedgerContext.use(['members', 'removeMember', 'busy', 'ready', 'newMember', 'addMember', 'exportJSON', 'exportCSV', 'hasLegacy', 'exportLegacy', 'importJSON', 'confirmClear', 'records', 'canWrite']);
+    const bindings = LedgerContext.use(['members', 'removeMember', 'renameMember', 'busy', 'ready', 'newMember', 'addMember', 'exportJSON', 'exportCSV', 'hasLegacy', 'exportLegacy', 'importJSON', 'confirmClear', 'records', 'canWrite']);
     const fileInput = Vue.ref(null);
+    const editingId = Vue.ref('');
+    const editName = Vue.ref('');
     function triggerImport() {
       if (bindings.canWrite()) fileInput.value?.click();
     }
-    return { ...bindings, fileInput, triggerImport };
+    function startRename(m) {
+      if (bindings.busy || !bindings.ready) return;
+      editingId.value = m.id; editName.value = m.name;
+    }
+    function cancelRename() { editingId.value = ''; editName.value = ''; }
+    async function commitRename() {
+      const id = editingId.value;
+      const ok = await bindings.renameMember(id, editName.value);
+      if (ok !== false) cancelRename();
+    }
+    return { ...bindings, fileInput, triggerImport, editingId, editName, startRename, cancelRename, commitRename };
   },
   template: `
 <div class="page">
@@ -16,9 +28,17 @@ const SettingsPage = {
   <div class="card">
     <h3>家庭成员</h3>
     <div>
-      <span class="member-pill" v-for="m in members" :key="m">
-        <b>{{ m }}</b>
-        <button v-if="members.length>1" @click="removeMember(m)" :disabled="busy || !ready" :aria-label="'删除成员' + m">✕</button>
+      <span class="member-pill" v-for="m in members" :key="m.id">
+        <template v-if="editingId===m.id">
+          <input class="member-rename-input" v-model="editName" maxlength="32" aria-label="成员新名字"
+                 @keyup.enter="commitRename" @keyup.esc="cancelRename" @blur="commitRename">
+          <button class="member-rename-ok" @mousedown.prevent="commitRename" :disabled="busy || !ready" :aria-label="'确认改名' + m.name">✓</button>
+        </template>
+        <template v-else>
+          <b>{{ m.name }}</b>
+          <button v-if="members.length>1" class="member-rename" @click="startRename(m)" :disabled="busy || !ready" :aria-label="'重命名成员' + m.name">✎</button>
+          <button v-if="members.length>1" @click="removeMember(m)" :disabled="busy || !ready" :aria-label="'删除成员' + m.name">✕</button>
+        </template>
       </span>
     </div>
     <div class="form-line" style="margin-bottom:0">

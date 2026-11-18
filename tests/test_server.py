@@ -27,7 +27,7 @@ from backend import server
 
 def record(rid="test-1", **overrides):
     value = {"id": rid, "type": "expense", "amount": 12.34, "date": "2026-01-02",
-             "category": "餐饮", "member": "测试成员", "note": "", "createdAt": 1}
+             "category": "餐饮", "memberId": "m-test", "member": "测试成员", "note": "", "createdAt": 1}
     value.update(overrides)
     return value
 
@@ -70,7 +70,8 @@ class LedgerTests(unittest.TestCase):
         return data
 
     def save(self, recs=None, **overrides):
-        payload = {"records": recs if recs is not None else [record()], "members": ["测试成员"],
+        payload = {"records": recs if recs is not None else [record()],
+                   "members": [{"id": "m-test", "name": "测试成员"}],
                    "revision": self.data()["revision"]}
         payload.update(overrides)
         return self.request("POST", "/api/replace", payload)
@@ -82,12 +83,12 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(first["revision"], self.data()["revision"])
         status, health, _ = self.request(path="/api/health")
         self.assertEqual(status, 200)
-        self.assertEqual(health, {"app": "family-ledger", "protocol": 2})
+        self.assertEqual(health, {"app": "family-ledger", "protocol": 3})
 
     def test_round_trip_all_types_and_clear(self):
         records = [record(), record("income", type="income"),
                    record("buy", type="invest", action="buy", platform="测试平台"),
-                   record("transfer", type="transfer", **{"from": "甲", "to": "乙"})]
+                   record("transfer", type="transfer", **{"fromId": "ma", "toId": "mb", "from": "甲", "to": "乙"})]
         self.assertEqual(self.save(records)[0], 200)
         self.assertEqual(len(self.data()["records"]), 4)
         self.assertEqual(self.save([])[0], 200)
@@ -104,7 +105,7 @@ class LedgerTests(unittest.TestCase):
                    record(date="2026-02-30"), record(date="2026-1-1"), record(date="0001-01-01"),
                    record(type="bad"), record(createdAt=-1), record(createdAt=1.5),
                    record(note={}), record(category=""), record(type="invest", action="bad"),
-                   record(type="transfer", **{"from": "甲", "to": "甲"})]
+                   record(type="transfer", fromId="a", toId="a")]
         for item in invalid:
             with self.subTest(item=item):
                 self.assertEqual(self.save([item])[0], 400)
@@ -116,7 +117,9 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(self.save()[0], 200)
         before = self.data()
         for body in ({}, [], {"records": []}, {"records": [], "members": []},
-                     {"records": [], "members": ["甲", "甲"]}):
+                     {"records": [], "members": ["甲"]},
+                     {"records": [], "members": [{"id": "a", "name": "甲"}, {"id": "b", "name": "甲"}]},
+                     {"records": [], "members": [{"id": "a", "name": "甲"}, {"id": "a", "name": "乙"}]}):
             self.assertEqual(self.request("POST", "/api/replace", body)[0], 400)
             self.assertEqual(self.data(), before)
 
@@ -134,7 +137,7 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(len(self.data()["records"]), 1)
 
     def test_origin_host_token_and_content_type(self):
-        payload = {"records": [], "members": ["甲"], "revision": self.data()["revision"]}
+        payload = {"records": [], "members": [{"id": "a", "name": "甲"}], "revision": self.data()["revision"]}
         cases = [({"Origin": "https://example.com"}, 403),
                  ({"Host": "attacker.example"}, 403), ({"X-Ledger-Token": ""}, 403),
                  ({"X-Ledger-Token": "é"}, 403),
@@ -240,6 +243,30 @@ class LedgerTests(unittest.TestCase):
         revision = self.data()["revision"]
         server.init_db()
         self.assertEqual(self.data()["revision"], revision)
+
+    def test_migration_backfills_member_ids_from_names(self):
+        legacy = Path(self.temp.name) / "mig.db"
+        conn = sqlite3.connect(legacy)
+        conn.execute("CREATE TABLE records (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, data TEXT NOT NULL)")
+        conn.execute("CREATE TABLE members (idx INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        conn.executemany("INSERT INTO members (idx, name) VALUES (?, ?)", [(0, "明奇"), (1, "家人")])
+        conn.execute("INSERT INTO records (id, data) VALUES (?, ?)", ("r1", json.dumps(
+            {"id": "r1", "type": "expense", "amount": 5.0, "date": "2026-01-02",
+             "category": "餐饮", "member": "家人", "note": "", "createdAt": 1})))
+        conn.execute("INSERT INTO records (id, data) VALUES (?, ?)", ("r2", json.dumps(
+            {"id": "r2", "type": "transfer", "amount": 5.0, "date": "2026-01-02",
+             "note": "", "createdAt": 1, "from": "明奇", "to": "家人"})))
+        conn.commit()
+        conn.close()
+        server.DB = legacy
+        server.init_db()
+        data = self.data()
+        id_by_name = {m["name"]: m["id"] for m in data["members"]}
+        recs = {r["id"]: r for r in data["records"]}
+        self.assertTrue(id_by_name["明奇"] and id_by_name["家人"])
+        self.assertEqual(recs["r1"]["memberId"], id_by_name["家人"])
+        self.assertEqual(recs["r2"]["fromId"], id_by_name["明奇"])
+        self.assertEqual(recs["r2"]["toId"], id_by_name["家人"])
 
 
 class DeploymentPathTests(unittest.TestCase):
@@ -349,7 +376,7 @@ class LauncherTests(unittest.TestCase):
             return code, spawn, browser
 
     def health(self):
-        return io.StringIO('{"app":"family-ledger","protocol":2}')
+        return io.StringIO('{"app":"family-ledger","protocol":3}')
 
     def test_existing_service_is_reused(self):
         code, spawn, browser = self.run_script([self.health()])

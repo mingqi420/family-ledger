@@ -11,6 +11,7 @@ import json
 import secrets
 import sqlite3
 import sys
+import uuid
 from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -65,8 +66,17 @@ def validate_data(body):
             raise ValueError(f"{label}必须是有效文本，最多 {limit} 个字符")
         return value
 
-    members = [text(m, "成员名字", 32) for m in mems]
-    if len(set(members)) != len(members):
+    members, member_ids = [], set()
+    for m in mems:
+        if not isinstance(m, dict):
+            raise ValueError("成员必须是包含 id 与 name 的对象")
+        mid = text(m.get("id"), "成员 ID", 64)
+        name = text(m.get("name"), "成员名字", 32)
+        if mid in member_ids:
+            raise ValueError("成员 ID 不能重复")
+        member_ids.add(mid)
+        members.append({"id": mid, "name": name})
+    if len({m["name"] for m in members}) != len(members):
         raise ValueError("成员名字不能重复")
     result, ids = [], set()
     for i, r in enumerate(recs, 1):
@@ -101,15 +111,18 @@ def validate_data(body):
                 "createdAt": stamp, "note": text(r.get("note", ""), "备注", 500, True)}
         if kind in ("income", "expense"):
             item.update(category=text(r.get("category"), "分类", 64),
-                        member=text(r.get("member", ""), "成员", 32, True))
+                        memberId=text(r.get("memberId", ""), "成员 ID", 64, True),
+                        member=text(r.get("member", ""), "成员名字", 32, True))
         elif kind == "invest":
             if r.get("action") not in ("buy", "redeem", "profit"):
                 raise ValueError(f"第 {i} 条理财操作不正确")
             item.update(action=r["action"], platform=text(r.get("platform"), "平台", 64))
         else:
-            item["from"] = text(r.get("from"), "转出人", 32)
-            item["to"] = text(r.get("to"), "转入人", 32)
-            if item["from"] == item["to"]:
+            item["fromId"] = text(r.get("fromId", ""), "转出人 ID", 64, True)
+            item["toId"] = text(r.get("toId", ""), "转入人 ID", 64, True)
+            item["from"] = text(r.get("from", ""), "转出人", 32, True)
+            item["to"] = text(r.get("to", ""), "转入人", 32, True)
+            if item["fromId"] and item["fromId"] == item["toId"]:
                 raise ValueError("转出人和转入人不能相同")
         result.append(item)
     return result, members
@@ -127,12 +140,46 @@ def init_db():
         c.execute(
             "CREATE TABLE IF NOT EXISTS members ("
             " idx INTEGER PRIMARY KEY,"
+            " id TEXT,"
             " name TEXT NOT NULL)"
         )
         c.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         c.execute("INSERT OR IGNORE INTO metadata VALUES ('revision', ?)", (secrets.token_hex(16),))
+        # 先确保旧库的 members 表有 id 列，再插入默认成员，最后回填历史记录缺少的 id
+        if "id" not in [row[1] for row in c.execute("PRAGMA table_info(members)")]:
+            c.execute("ALTER TABLE members ADD COLUMN id TEXT")
         if not c.execute("SELECT 1 FROM members LIMIT 1").fetchone():
-            c.executemany("INSERT INTO members (idx, name) VALUES (?, ?)", enumerate(["明奇", "家人"]))
+            c.executemany("INSERT INTO members (idx, id, name) VALUES (?, ?, ?)",
+                          ((i, uuid.uuid4().hex, n) for i, n in enumerate(["明奇", "家人"])))
+        _migrate_member_ids(c)
+
+
+def _migrate_member_ids(c):
+    """将旧库升级为“稳定成员 id”模型：补 id 列、回填 id，并把历史记录里的成员名字映射为 id。"""
+    columns = [row[1] for row in c.execute("PRAGMA table_info(members)")]
+    if "id" not in columns:
+        c.execute("ALTER TABLE members ADD COLUMN id TEXT")
+    for (idx,) in c.execute("SELECT idx FROM members WHERE id IS NULL OR id = ''").fetchall():
+        c.execute("UPDATE members SET id = ? WHERE idx = ?", (uuid.uuid4().hex, idx))
+    name_to_id = {name: mid for mid, name in c.execute("SELECT id, name FROM members")}
+    for seq, data in c.execute("SELECT seq, data FROM records").fetchall():
+        try:
+            rec = json.loads(data)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        changed = False
+        if rec.get("type") in ("income", "expense") and "memberId" not in rec:
+            rec["memberId"] = name_to_id.get(rec.get("member", ""), "")
+            changed = True
+        elif rec.get("type") == "transfer" and "fromId" not in rec:
+            rec["fromId"] = name_to_id.get(rec.get("from", ""), "")
+            rec["toId"] = name_to_id.get(rec.get("to", ""), "")
+            changed = True
+        if changed:
+            c.execute("UPDATE records SET data = ? WHERE seq = ?",
+                      (json.dumps(rec, ensure_ascii=False, sort_keys=True), seq))
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -226,13 +273,13 @@ class Handler(SimpleHTTPRequestHandler):
             return
         path = urlsplit(self.path).path
         if path == "/api/health":
-            self._json(200, {"app": "family-ledger", "protocol": 2})
+            self._json(200, {"app": "family-ledger", "protocol": 3})
         elif path == "/api/data":
             try:
                 with db() as c:
                     c.execute("BEGIN")
                     rows = c.execute("SELECT data FROM records ORDER BY seq").fetchall()
-                    mem = [r[0] for r in c.execute("SELECT name FROM members ORDER BY idx")]
+                    mem = [{"id": r[0], "name": r[1]} for r in c.execute("SELECT id, name FROM members ORDER BY idx")]
                     revision = c.execute("SELECT value FROM metadata WHERE key='revision'").fetchone()[0]
                 records = [json.loads(r[0]) for r in rows]
                 self._json(200, {"records": records, "members": mem, "revision": revision, "token": WRITE_TOKEN})
@@ -275,10 +322,11 @@ class Handler(SimpleHTTPRequestHandler):
                 c.execute("DELETE FROM records WHERE NOT EXISTS (SELECT 1 FROM incoming WHERE incoming.id=records.id)")
                 c.execute("INSERT INTO records (id, data) SELECT id, data FROM incoming WHERE 1 "
                           "ON CONFLICT(id) DO UPDATE SET data=excluded.data WHERE records.data<>excluded.data")
-                current_members = [r[0] for r in c.execute("SELECT name FROM members ORDER BY idx")]
+                current_members = [{"id": r[0], "name": r[1]} for r in c.execute("SELECT id, name FROM members ORDER BY idx")]
                 if current_members != mems:
                     c.execute("DELETE FROM members")
-                    c.executemany("INSERT INTO members (idx, name) VALUES (?, ?)", enumerate(mems))
+                    c.executemany("INSERT INTO members (idx, id, name) VALUES (?, ?, ?)",
+                                  ((i, m["id"], m["name"]) for i, m in enumerate(mems)))
                 new_revision = secrets.token_hex(16)
                 c.execute("UPDATE metadata SET value=? WHERE key='revision'", (new_revision,))
             self._json(200, {"ok": True, "records": len(recs), "revision": new_revision})

@@ -27,7 +27,7 @@ opener = build_opener(ProxyHandler({}))
 def healthy():
     with opener.open(url + '/api/health', timeout=1) as response:
         data = json.load(response)
-        return data.get('app') == 'family-ledger' and data.get('protocol') == 2
+        return data.get('app') == 'family-ledger' and data.get('protocol') == 3
 
 try:
     if not healthy():

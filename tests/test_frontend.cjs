@@ -22,7 +22,7 @@ const makeRecord = (id = 'test', extra = {}) => ({
 });
 
 async function harness(initial = [], options = {}) {
-  const remote = { records: clone(initial), members: ['测试成员', '家人'], revision: 'rev-0', token: 'test-token' };
+  const remote = { records: clone(initial), members: [{ id: 'mingqi', name: '测试成员' }, { id: 'jiaren', name: '家人' }], revision: 'rev-0', token: 'test-token' };
   const state = { remote, gets: 0, posts: 0, fail: false, loseResponse: false, gate: null, downloads: [], errors: [], listeners: {} };
   const storage = new Map(Object.entries(options.storage || {}));
   const context = vm.createContext({ console, setTimeout: (...args) => { const timer = setTimeout(...args); timer.unref(); return timer; },
@@ -225,7 +225,7 @@ test('设置组件成员绑定及文件引用重建，导入确认仍通过共�
   button(h, '⚙️设置').click(); await h.flush();
   typeInto(input(h, '新增成员名字'), '新增测试成员');
   button(h, '添加').click(); await h.flush();
-  assert.ok(h.remote.members.includes('新增测试成员'));
+  assert.ok(h.remote.members.some(m => m.name === '新增测试成员'));
   assert.equal(input(h, '新增成员名字').value, '');
   let file = h.ui.all(node => node.props.type === 'file')[0];
   button(h, '从备份文件恢复').click();
@@ -259,7 +259,7 @@ test('明细页人名筛选：按成员过滤，切到理财时自动重置，�
   ], { render: true });
   assert.equal(h.app.filteredMonth.value.length, 3);
   button(h, '家人', 'chips-member').click(); await h.flush();
-  assert.equal(h.app.memberFilter.value, '家人');
+  assert.equal(h.app.memberFilter.value, 'jiaren');
   assert.deepEqual([...h.app.filteredMonth.value.map(r => r.id)], ['b']);
   // 切到理财时自动重置人名筛选，避免隐藏筛选导致空列表
   button(h, '理财').click(); await h.flush();
@@ -267,8 +267,8 @@ test('明细页人名筛选：按成员过滤，切到理财时自动重置，�
   // 选中成员后切回支持人名的类型，再移除该成员，自动回到全部
   button(h, '支出').click(); await h.flush();
   button(h, '测试成员', 'chips-member').click(); await h.flush();
-  assert.equal(h.app.memberFilter.value, '测试成员');
-  h.app.members.value = ['家人']; await h.flush();
+  assert.equal(h.app.memberFilter.value, 'mingqi');
+  h.app.members.value = [{ id: 'jiaren', name: '家人' }]; await h.flush();
   assert.equal(h.app.memberFilter.value, 'all');
   h.unmount();
 });
@@ -287,15 +287,33 @@ test('统计页成员筛选：按成员汇总并隐藏理财项，成员被移�
   assert.match(h.ui.text(), /理财概况/);
   // 选中“测试成员”：仅其收支，无成员归属的理财记录被排除，理财项隐藏
   button(h, '测试成员', 'chips-member').click(); await h.flush();
-  assert.equal(h.app.statMember.value, '测试成员');
+  assert.equal(h.app.statMember.value, 'mingqi');
   assert.equal(h.app.statMonthStats.value.expense, 10);
   assert.equal(h.app.statMonthStats.value.income, 20);
   assert.equal(h.app.statMonthStats.value.investBuy, 0);
   assert.doesNotMatch(h.ui.text(), /理财概况/);
   // 移除该成员后统计页筛选自动回到全部
-  h.app.members.value = ['家人']; await h.flush();
+  h.app.members.value = [{ id: 'jiaren', name: '家人' }]; await h.flush();
   assert.equal(h.app.statMember.value, 'all');
   h.unmount();
+});
+
+test('改名保持成员 id，历史记录随 id 自动跟随新名字', async () => {
+  const h = await harness([
+    makeRecord('a', { member: '测试成员', amount: 10 }),
+    makeRecord('b', { member: '家人', amount: 4 }),
+  ]);
+  h.app.statMember.value = 'mingqi';
+  assert.equal(h.app.statMonthStats.value.expense, 10); // 改名前按 id 命中
+  assert.equal(await h.app.renameMember('jiaren', '测试成员'), false); // 重名拒绝，不改数据
+  assert.equal(h.app.members.value.find(m => m.id === 'mingqi').name, '测试成员');
+  const ok = await h.app.renameMember('mingqi', '新名字');
+  assert.equal(ok, true);
+  assert.equal(h.app.members.value.find(m => m.id === 'mingqi').name, '新名字');
+  assert.deepEqual(h.remote.members.map(m => m.name), ['新名字', '家人']);
+  assert.equal(h.app.statMember.value, 'mingqi'); // 筛选状态不因改名丢失
+  assert.equal(h.app.statMonthStats.value.expense, 10); // 旧记录仍随 id 命中
+  assert.equal(h.app.memberDisplay('mingqi', ''), '新名字'); // 展示按 id 解析到新名字
 });
 
 test('初始化只读、旧缓存不自动迁移或复活已清空账本', async () => {
@@ -419,7 +437,7 @@ test('JSON 导出可直接恢复，保留全部记录和成员', async () => {
   const backup = JSON.parse(content);
   assert.equal(backup.app, 'family-ledger');
   assert.equal(backup.records[0].id, 'backup');
-  assert.deepEqual(backup.members, ['测试成员', '家人']);
+  assert.deepEqual(backup.members.map(m => m.name), ['测试成员', '家人']);
   assert.equal(content.includes('\n'), false);
   h.app.importJSON({ target: { files: [{ size: h.downloads[0].size, contents: content }], value: 'backup' } });
   await h.app.confirmModal();

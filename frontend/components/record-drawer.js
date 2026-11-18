@@ -62,13 +62,13 @@ const RecordDrawer = {
     <div class="form-line">
       <span class="lbl">转出人</span>
       <div class="member-seg">
-        <button v-for="m in members" :key="'f'+m" :class="{on: form.from===m}" @click="form.from=m">{{ m }}</button>
+        <button v-for="m in members" :key="'f'+m.id" :class="{on: form.from===m.id}" @click="form.from=m.id">{{ m.name }}</button>
       </div>
     </div>
     <div class="form-line">
       <span class="lbl">转入人</span>
       <div class="member-seg">
-        <button v-for="m in members" :key="'t'+m" :class="{on: form.to===m}" @click="form.to=m">{{ m }}</button>
+        <button v-for="m in members" :key="'t'+m.id" :class="{on: form.to===m.id}" @click="form.to=m.id">{{ m.name }}</button>
       </div>
     </div>
     <div class="hint">家庭内部转账不计入账单，仅做记录</div>
@@ -78,7 +78,7 @@ const RecordDrawer = {
   <div class="form-line" v-if="form.type==='expense' || form.type==='income'">
     <span class="lbl">成员</span>
     <div class="member-seg">
-      <button v-for="m in members" :key="m" :class="{on: form.member===m}" @click="form.member=m">{{ m }}</button>
+      <button v-for="m in members" :key="m.id" :class="{on: form.member===m.id}" @click="form.member=m.id">{{ m.name }}</button>
     </div>
   </div>
 
