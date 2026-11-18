@@ -99,6 +99,7 @@ createApp({
     const now = new Date();
     const cursor = ref({ y: now.getFullYear(), m: now.getMonth() }); // m: 0-11
     const filter = ref('all');
+    const memberFilter = ref('all'); // 明细页人名筛选，'all' 表示不限成员
     const statView = ref('month');
     const newMember = ref('');
 
@@ -200,8 +201,11 @@ createApp({
       if (!v.includes(form.member)) form.member = v[0] || '';
       if (!v.includes(form.from)) form.from = v[0] || '';
       if (!v.includes(form.to)) form.to = v[1] || v[0] || '';
+      if (memberFilter.value !== 'all' && !v.includes(memberFilter.value)) memberFilter.value = 'all';
     });
-    watch([cursor, filter], () => { visibleCount.value = 100; });
+    watch([cursor, filter, memberFilter], () => { visibleCount.value = 100; });
+    // 理财/内部转账记录不归属单一成员，切换到这两类时重置人名筛选
+    watch(filter, t => { if (t === 'invest' || t === 'transfer') memberFilter.value = 'all'; });
 
     /* ========== 工具 ========== */
     const fmt = n => (Math.round((n || 0) * 100) / 100).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
@@ -283,9 +287,14 @@ createApp({
       { key: 'all', name: '全部' }, { key: 'expense', name: '支出' }, { key: 'income', name: '收入' },
       { key: 'invest', name: '理财' }, { key: 'transfer', name: '内部转账' },
     ];
+    const memberFilters = computed(() => [
+      { key: 'all', name: '全部成员' },
+      ...members.value.map(m => ({ key: m, name: m })),
+    ]);
     const filteredMonth = computed(() => {
       let list = monthRecords.value;
       if (filter.value !== 'all') list = list.filter(r => r.type === filter.value);
+      if (memberFilter.value !== 'all') list = list.filter(r => r.member === memberFilter.value);
       return list;
     });
     const dayGroups = computed(() => {
@@ -469,6 +478,7 @@ createApp({
         drawer.value = false;
         cursor.value = { y: Number(rec.date.slice(0, 4)), m: Number(rec.date.slice(5, 7)) - 1 };
         filter.value = 'all';
+        memberFilter.value = 'all';
         showToast('已保存到数据库 ¥' + fmt(rec.amount));
       }
     }
@@ -633,10 +643,10 @@ createApp({
       records, members, newMember,
       ready, busy, syncLabel, syncError, cacheWarning, hasLegacy, reloadData, exportLegacy,
       visibleCount, filteredMonth, confirmModal, closeOverlay,
-      cursor, filter, statView,
+      cursor, filter, memberFilter, statView,
       monthLabel, statLabel, statYear, today,
       monthStats, yearStats, allTime, totalInvested,
-      typeFilters, dayGroups, dayTitle, dayNum,
+      typeFilters, memberFilters, dayGroups, dayTitle, dayNum,
       recIcon, recTitle, recSub, amtClass, amtText, catEmoji,
       investActionName, investActionIcon,
       monthExpenseRank, monthIncomeRank, yearExpenseRank,

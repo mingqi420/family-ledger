@@ -2,7 +2,7 @@
 const DetailPage = {
   name: 'DetailPage',
   setup() {
-    return LedgerContext.use(['monthLabel', 'monthStats', 'fmt', 'shiftMonth', 'typeFilters', 'filter', 'filteredMonth', 'dayGroups', 'dayTitle', 'askDelete', 'recTitle', 'amtText', 'recIcon', 'investActionName', 'recSub', 'amtClass', 'visibleCount']);
+    return LedgerContext.use(['monthLabel', 'monthStats', 'fmt', 'shiftMonth', 'typeFilters', 'filter', 'memberFilters', 'memberFilter', 'filteredMonth', 'dayGroups', 'dayTitle', 'askDelete', 'recTitle', 'amtText', 'recIcon', 'investActionName', 'recSub', 'amtClass', 'visibleCount']);
   },
   template: `
 <div class="page">
@@ -30,6 +30,11 @@ const DetailPage = {
     <button v-for="f in typeFilters" :key="f.key" class="chip" :class="{on: filter===f.key}" @click="filter=f.key">{{ f.name }}</button>
   </div>
 
+  <div class="chips chips-member" v-if="filter==='all' || filter==='expense' || filter==='income'">
+    <span class="chips-label">成员</span>
+    <button v-for="m in memberFilters" :key="m.key" class="chip" :class="{on: memberFilter===m.key}" @click="memberFilter=m.key">{{ m.name }}</button>
+  </div>
+
   <div class="list-hint" v-if="filteredMonth.length">共 {{ filteredMonth.length }} 笔 · 点击记录可删除 · 每日汇总包含当天全部筛选结果，收入含理财收益</div>
   <template v-if="dayGroups.length">
     <div v-for="g in dayGroups" :key="g.date">
@@ -47,7 +52,7 @@ const DetailPage = {
       </div>
     </div>
   </template>
-  <div class="empty" v-else>{{ filter==='all' ? '本月暂无记录' : '本月暂无此类型记录' }}<br>点下方 ＋ 开始记一笔</div>
+  <div class="empty" v-else>{{ memberFilter!=='all' ? '该成员本月暂无记录' : (filter==='all' ? '本月暂无记录' : '本月暂无此类型记录') }}<br>点下方 ＋ 开始记一笔</div>
   <button class="btn ghost" v-if="visibleCount < filteredMonth.length" @click="visibleCount += 100">加载更多（已显示 {{ visibleCount }} / {{ filteredMonth.length }} 笔）</button>
 </div>
 `,

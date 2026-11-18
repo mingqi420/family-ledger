@@ -51,6 +51,10 @@
   .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 10px; }
   .chip { border: 0; background: var(--card); color: var(--ink-2); border-radius: 16px; padding: 6px 14px; font-size: 13px; white-space: nowrap; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
   .chip.on { background: var(--brand); color: #fff; font-weight: 600; }
+  .chips-member { margin-top: -4px; align-items: center; }
+  .chips-member .chips-label { flex-shrink: 0; font-size: 12px; color: var(--ink-3); }
+  .chips-member .chip { padding: 4px 12px; font-size: 12px; background: var(--bg); }
+  .chips-member .chip.on { background: var(--purple); color: #fff; font-weight: 600; }
 
   /* ---------- 流水 ---------- */
   .day-head { display: flex; justify-content: space-between; padding: 10px 4px 6px; font-size: 12px; color: var(--ink-2); }

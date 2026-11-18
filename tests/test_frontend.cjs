@@ -251,6 +251,28 @@ test('设置组件成员绑定及文件引用重建，导入确认仍通过共�
   h.unmount();
 });
 
+test('明细页人名筛选：按成员过滤，切到理财时自动重置，成员被移除时同步重置', async () => {
+  const h = await harness([
+    makeRecord('a', { member: '测试成员' }),
+    makeRecord('b', { member: '家人' }),
+    makeRecord('c', { type: 'income', member: '测试成员' }),
+  ], { render: true });
+  assert.equal(h.app.filteredMonth.value.length, 3);
+  button(h, '家人', 'chips-member').click(); await h.flush();
+  assert.equal(h.app.memberFilter.value, '家人');
+  assert.deepEqual([...h.app.filteredMonth.value.map(r => r.id)], ['b']);
+  // 切到理财时自动重置人名筛选，避免隐藏筛选导致空列表
+  button(h, '理财').click(); await h.flush();
+  assert.equal(h.app.memberFilter.value, 'all');
+  // 选中成员后切回支持人名的类型，再移除该成员，自动回到全部
+  button(h, '支出').click(); await h.flush();
+  button(h, '测试成员', 'chips-member').click(); await h.flush();
+  assert.equal(h.app.memberFilter.value, '测试成员');
+  h.app.members.value = ['家人']; await h.flush();
+  assert.equal(h.app.memberFilter.value, 'all');
+  h.unmount();
+});
+
 test('初始化只读、旧缓存不自动迁移或复活已清空账本', async () => {
   const h = await harness([], { storage: {
     'family-ledger-records-v1': JSON.stringify([makeRecord('old')]),
