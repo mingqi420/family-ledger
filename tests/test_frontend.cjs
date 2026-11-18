@@ -273,6 +273,31 @@ test('明细页人名筛选：按成员过滤，切到理财时自动重置，�
   h.unmount();
 });
 
+test('统计页成员筛选：按成员汇总并隐藏理财项，成员被移除时重置', async () => {
+  const h = await harness([
+    makeRecord('a', { member: '测试成员', amount: 10 }),
+    makeRecord('b', { member: '家人', amount: 4 }),
+    makeRecord('c', { type: 'income', member: '测试成员', amount: 20 }),
+    makeRecord('d', { type: 'invest', action: 'buy', platform: '某平台', amount: 100 }),
+  ], { render: true });
+  button(h, '📊统计').click(); await h.flush();
+  // 全部成员：支出含两人，理财买入计入，理财概况卡片可见
+  assert.equal(h.app.statMonthStats.value.expense, 14);
+  assert.equal(h.app.statMonthStats.value.investBuy, 100);
+  assert.match(h.ui.text(), /理财概况/);
+  // 选中“测试成员”：仅其收支，无成员归属的理财记录被排除，理财项隐藏
+  button(h, '测试成员', 'chips-member').click(); await h.flush();
+  assert.equal(h.app.statMember.value, '测试成员');
+  assert.equal(h.app.statMonthStats.value.expense, 10);
+  assert.equal(h.app.statMonthStats.value.income, 20);
+  assert.equal(h.app.statMonthStats.value.investBuy, 0);
+  assert.doesNotMatch(h.ui.text(), /理财概况/);
+  // 移除该成员后统计页筛选自动回到全部
+  h.app.members.value = ['家人']; await h.flush();
+  assert.equal(h.app.statMember.value, 'all');
+  h.unmount();
+});
+
 test('初始化只读、旧缓存不自动迁移或复活已清空账本', async () => {
   const h = await harness([], { storage: {
     'family-ledger-records-v1': JSON.stringify([makeRecord('old')]),

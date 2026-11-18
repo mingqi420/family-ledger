@@ -101,6 +101,7 @@ createApp({
     const filter = ref('all');
     const memberFilter = ref('all'); // 明细页人名筛选，'all' 表示不限成员
     const statView = ref('month');
+    const statMember = ref('all'); // 统计页成员筛选，'all' 表示全部成员
     const newMember = ref('');
 
     let draftId = '';
@@ -202,6 +203,7 @@ createApp({
       if (!v.includes(form.from)) form.from = v[0] || '';
       if (!v.includes(form.to)) form.to = v[1] || v[0] || '';
       if (memberFilter.value !== 'all' && !v.includes(memberFilter.value)) memberFilter.value = 'all';
+      if (statMember.value !== 'all' && !v.includes(statMember.value)) statMember.value = 'all';
     });
     watch([cursor, filter, memberFilter], () => { visibleCount.value = 100; });
     // 理财/内部转账记录不归属单一成员，切换到这两类时重置人名筛选
@@ -277,6 +279,11 @@ createApp({
     const yearRecords = computed(() => recordIndex.value.years.get(String(cursor.value.y)) || []);
     const monthStats = computed(() => statsOf(monthRecords.value));
     const yearStats = computed(() => statsOf(yearRecords.value));
+    // 统计页按成员筛选后的记录源；明细页汇总仍用未筛选的 monthStats/yearStats
+    const statMonthRecords = computed(() => statMember.value === 'all' ? monthRecords.value : monthRecords.value.filter(r => r.member === statMember.value));
+    const statYearRecords = computed(() => statMember.value === 'all' ? yearRecords.value : yearRecords.value.filter(r => r.member === statMember.value));
+    const statMonthStats = computed(() => statsOf(statMonthRecords.value));
+    const statYearStats = computed(() => statsOf(statYearRecords.value));
 
     // 全部历史
     const allTime = computed(() => statsOf(records.value));
@@ -368,14 +375,14 @@ createApp({
       arr.forEach(c => { c.pct = Math.max(4, Math.round(c.total / max * 100)); c.share = Math.round(c.total / sum * 100); });
       return arr;
     }
-    const monthExpenseRank = computed(() => rankOf(monthRecords.value, 'expense'));
-    const monthIncomeRank = computed(() => rankOf(monthRecords.value, 'income'));
-    const yearExpenseRank = computed(() => rankOf(yearRecords.value, 'expense'));
+    const monthExpenseRank = computed(() => rankOf(statMonthRecords.value, 'expense'));
+    const monthIncomeRank = computed(() => rankOf(statMonthRecords.value, 'income'));
+    const yearExpenseRank = computed(() => rankOf(statYearRecords.value, 'expense'));
 
     const dailyTrend = computed(() => {
       const days = new Date(cursor.value.y, cursor.value.m + 1, 0).getDate();
       const arr = Array.from({ length: days }, (_, i) => ({ day: String(i + 1), expense: 0 }));
-      for (const r of monthRecords.value) {
+      for (const r of statMonthRecords.value) {
         if (r.type === 'expense') {
           const day = arr[Number(r.date.slice(8)) - 1];
           day.expense = addMoney(day.expense, r.amount);
@@ -390,7 +397,9 @@ createApp({
       const arr = [];
       for (let m = 1; m <= 12; m++) {
         const key = cursor.value.y + '-' + pad(m);
-        const s = statsOf(recordIndex.value.months.get(key) || []);
+        const list = statMember.value === 'all' ? (recordIndex.value.months.get(key) || [])
+          : (recordIndex.value.months.get(key) || []).filter(r => r.member === statMember.value);
+        const s = statsOf(list);
         arr.push({ m, income: addMoney(s.income, s.investProfit), expense: s.expense });
       }
       return arr;
@@ -645,7 +654,7 @@ createApp({
       visibleCount, filteredMonth, confirmModal, closeOverlay,
       cursor, filter, memberFilter, statView,
       monthLabel, statLabel, statYear, today,
-      monthStats, yearStats, allTime, totalInvested,
+      monthStats, yearStats, statMember, statMonthStats, statYearStats, allTime, totalInvested,
       typeFilters, memberFilters, dayGroups, dayTitle, dayNum,
       recIcon, recTitle, recSub, amtClass, amtText, catEmoji,
       investActionName, investActionIcon,

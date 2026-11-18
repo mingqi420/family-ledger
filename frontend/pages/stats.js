@@ -2,7 +2,7 @@
 const StatsPage = {
   name: 'StatsPage',
   setup() {
-    return LedgerContext.use(['shiftMonth', 'statLabel', 'statView', 'fmt', 'monthStats', 'dailyTrend', 'trendH', 'dayNum', 'monthExpenseRank', 'catEmoji', 'monthIncomeRank', 'monthLabel', 'totalInvested', 'yearStats', 'statYear', 'monthTrend', 'yBarH', 'yearExpenseRank']);
+    return LedgerContext.use(['shiftMonth', 'statLabel', 'statView', 'fmt', 'statMember', 'memberFilters', 'statMonthStats', 'dailyTrend', 'trendH', 'dayNum', 'monthExpenseRank', 'catEmoji', 'monthIncomeRank', 'monthLabel', 'totalInvested', 'statYearStats', 'statYear', 'monthTrend', 'yBarH', 'yearExpenseRank']);
   },
   template: `
 <div class="page">
@@ -20,12 +20,17 @@ const StatsPage = {
     <button :class="{on: statView==='year'}" @click="statView='year'">年视图</button>
   </div>
 
+  <div class="chips chips-member">
+    <span class="chips-label">成员</span>
+    <button v-for="m in memberFilters" :key="m.key" class="chip" :class="{on: statMember===m.key}" @click="statMember=m.key">{{ m.name }}</button>
+  </div>
+
   <template v-if="statView==='month'">
     <div class="stat-grid">
-      <div class="cell"><div class="k">收入</div><div class="v" style="color:var(--in)">+{{ fmt(monthStats.income) }}</div></div>
-      <div class="cell"><div class="k">支出</div><div class="v" style="color:var(--out)">-{{ fmt(monthStats.expense) }}</div></div>
-      <div class="cell"><div class="k">结余</div><div class="v">¥{{ fmt(monthStats.balance) }}</div></div>
-      <div class="cell"><div class="k">理财收益</div><div class="v" style="color:var(--gold)">+{{ fmt(monthStats.investProfit) }}</div></div>
+      <div class="cell"><div class="k">收入</div><div class="v" style="color:var(--in)">+{{ fmt(statMonthStats.income) }}</div></div>
+      <div class="cell"><div class="k">支出</div><div class="v" style="color:var(--out)">-{{ fmt(statMonthStats.expense) }}</div></div>
+      <div class="cell"><div class="k">结余</div><div class="v">¥{{ fmt(statMonthStats.balance) }}</div></div>
+      <div class="cell" v-if="statMember==='all'"><div class="k">理财收益</div><div class="v" style="color:var(--gold)">+{{ fmt(statMonthStats.investProfit) }}</div></div>
     </div>
 
     <div class="card">
@@ -64,12 +69,12 @@ const StatsPage = {
       <div class="empty" v-if="!monthIncomeRank.length" style="padding:20px 0">本月暂无收入</div>
     </div>
 
-    <div class="card">
+    <div class="card" v-if="statMember==='all'">
       <h3>理财概况（{{ monthLabel }}）</h3>
       <div class="stat-grid" style="margin-bottom:6px">
-        <div class="cell"><div class="k">本月买入</div><div class="v">¥{{ fmt(monthStats.investBuy) }}</div></div>
-        <div class="cell"><div class="k">本月赎回</div><div class="v">¥{{ fmt(monthStats.investRedeem) }}</div></div>
-        <div class="cell"><div class="k">本月收益</div><div class="v" style="color:var(--gold)">+{{ fmt(monthStats.investProfit) }}</div></div>
+        <div class="cell"><div class="k">本月买入</div><div class="v">¥{{ fmt(statMonthStats.investBuy) }}</div></div>
+        <div class="cell"><div class="k">本月赎回</div><div class="v">¥{{ fmt(statMonthStats.investRedeem) }}</div></div>
+        <div class="cell"><div class="k">本月收益</div><div class="v" style="color:var(--gold)">+{{ fmt(statMonthStats.investProfit) }}</div></div>
       </div>
       <div class="tip-box">当前在投本金合计：¥{{ fmt(totalInvested) }}（累计买入 − 累计赎回，含全部历史）</div>
     </div>
@@ -77,10 +82,10 @@ const StatsPage = {
 
   <template v-else>
     <div class="stat-grid">
-      <div class="cell"><div class="k">年收入</div><div class="v" style="color:var(--in)">+{{ fmt(yearStats.income) }}</div></div>
-      <div class="cell"><div class="k">年支出</div><div class="v" style="color:var(--out)">-{{ fmt(yearStats.expense) }}</div></div>
-      <div class="cell"><div class="k">年结余</div><div class="v">¥{{ fmt(yearStats.balance) }}</div></div>
-      <div class="cell"><div class="k">理财收益</div><div class="v" style="color:var(--gold)">+{{ fmt(yearStats.investProfit) }}</div></div>
+      <div class="cell"><div class="k">年收入</div><div class="v" style="color:var(--in)">+{{ fmt(statYearStats.income) }}</div></div>
+      <div class="cell"><div class="k">年支出</div><div class="v" style="color:var(--out)">-{{ fmt(statYearStats.expense) }}</div></div>
+      <div class="cell"><div class="k">年结余</div><div class="v">¥{{ fmt(statYearStats.balance) }}</div></div>
+      <div class="cell" v-if="statMember==='all'"><div class="k">理财收益</div><div class="v" style="color:var(--gold)">+{{ fmt(statYearStats.investProfit) }}</div></div>
     </div>
 
     <div class="card">
@@ -107,10 +112,10 @@ const StatsPage = {
       <div class="empty" v-if="!yearExpenseRank.length" style="padding:20px 0">今年暂无支出</div>
     </div>
 
-    <div class="card">
+    <div class="card" v-if="statMember==='all'">
       <h3>年度理财概况</h3>
       <div class="tip-box">
-        全年买入 ¥{{ fmt(yearStats.investBuy) }} ｜ 赎回 ¥{{ fmt(yearStats.investRedeem) }} ｜ 收益 <b style="color:var(--gold)">+¥{{ fmt(yearStats.investProfit) }}</b><br>
+        全年买入 ¥{{ fmt(statYearStats.investBuy) }} ｜ 赎回 ¥{{ fmt(statYearStats.investRedeem) }} ｜ 收益 <b style="color:var(--gold)">+¥{{ fmt(statYearStats.investProfit) }}</b><br>
         当前在投本金合计：¥{{ fmt(totalInvested) }}
       </div>
     </div>
