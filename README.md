@@ -2,6 +2,20 @@
 
 一个适合本机使用的轻量家庭账本：Vue 页面 + Python 标准库 HTTP 服务 + SQLite。无需安装 npm 包或 Python 第三方依赖，前端框架已放在项目中，正常使用不依赖互联网。
 
+## 界面预览
+
+以下截图为本地运行的真实界面（演示数据），适配窄屏与桌面布局。
+
+| 明细 | 统计 | 理财 | 设置 | 记一笔 |
+| :-: | :-: | :-: | :-: | :-: |
+| <img src="docs/screenshots/detail.png" width="190" alt="明细页"> | <img src="docs/screenshots/stats.png" width="190" alt="统计页"> | <img src="docs/screenshots/invest.png" width="190" alt="理财页"> | <img src="docs/screenshots/settings.png" width="190" alt="设置页"> | <img src="docs/screenshots/drawer.png" width="190" alt="记账抽屉"> |
+
+- **明细**：按月与类型／成员筛选，按日汇总收支，长列表分批加载，点击记录可删除。
+- **统计**：月度／年度收支四宫格、每日支出趋势、分类占比排行。
+- **理财**：在投本金、累计买入／赎回／收益，按平台汇总与理财流水。
+- **设置**：家庭成员管理（含改名）、JSON 备份与恢复、CSV 导出、记账规则说明。
+- **记一笔**：支出／收入／理财／内部转账四类，分类、成员、日期、备注。
+
 ## 项目目录
 
 ```text
@@ -35,6 +49,9 @@ family-ledger/
 ├── data/
 │   ├── .gitignore             # 保留目录，但不提交个人数据
 │   └── ledger.db              # 正式账本，首次启动自动创建
+├── docs/
+│   ├── screenshots/           # README 界面截图
+│   └── images/                # 微信个人与公众号二维码
 ├── .gitattributes             # 跨平台脚本换行规则
 ├── .gitignore
 └── README.md
@@ -401,3 +418,12 @@ node --test .\tests\test_frontend.cjs
 - SQLite 使用 WAL、短连接、原子事务和版本检查，只新增／更新／删除有变化的记录，避免每次全表重建。
 - 静态资源使用 ETag 条件缓存，数据接口禁止缓存。
 - 写接口仍传送整个账本快照，校验和比对仍是线性开销；大量数据、高频多人写入不属于本版本目标。
+
+## 交流与反馈
+
+扫码添加作者微信，或关注公众号获取更新：
+
+| 个人微信 | 公众号 |
+| :-: | :-: |
+| <img src="docs/images/wechat-personal.jpg" width="220" alt="个人微信"> | <img src="docs/images/wechat-official-account.jpg" width="220" alt="微信公众号"> |
+| 添加我为朋友 | 扫码关注公众号 |
